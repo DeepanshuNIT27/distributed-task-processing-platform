@@ -5,15 +5,26 @@ import axios from "axios";
 import sharp from "sharp";
 import fs from "fs";
 import path from "path";
+import mongoose from "mongoose";
+import { Task } from "./models/Task.model.js";
 
 dotenv.config();
 
-console.log("👷 Worker starting...");
+// 🔥 FIX 1: MONGO_URI Validation
+if (!process.env.MONGO_URI) {
+  console.error("❌ MONGO_URI missing in .env");
+  process.exit(1);
+}
 
 if (!process.env.REDIS_URL) {
   console.error("❌ REDIS_URL missing in .env");
   process.exit(1);
 }
+
+console.log("👷 Worker starting...");
+
+await mongoose.connect(process.env.MONGO_URI);
+console.log("📦 Worker connected to MongoDB");
 
 // STABLE UPSTASH CONNECTION
 const connection = new IORedis(process.env.REDIS_URL, {
@@ -25,21 +36,33 @@ const connection = new IORedis(process.env.REDIS_URL, {
 connection.once("ready", () => console.log("✅ Redis authenticated & ready"));
 connection.on("error", (err) => console.error("❌ Redis Error:", err.message));
 
-// SDE STANDARD: Using 'outputs' folder instead of processed_images
 const outputFolder = path.resolve("outputs");
 if (!fs.existsSync(outputFolder)) {
   fs.mkdirSync(outputFolder, { recursive: true });
 }
 
-// BULLMQ WORKER WITH SHARP & Promise.allSettled
+// BULLMQ WORKER WITH SHARP & DB UPDATES
 const imageWorker = new Worker(
   "image-processing-queue",
   async (job) => {
-    console.log(`\n⚙️ Job [${job.id}] Started! Task:`, job.data.message);
+    const taskId = job.data.taskId;
+    console.log(`\n⚙️ Job [${job.id}] Started! Task ID:`, taskId);
 
     try {
-      const imageUrl = job.data.imageUrl;
-      if (!imageUrl) throw new Error("Image URL missing in job data!");
+      if (!taskId) throw new Error("Task ID missing in job data!");
+
+      const task = await Task.findById(taskId);
+      if (!task) throw new Error(`Task not found in DB! ID: ${taskId}`);
+
+      const imageUrl = task.originalImage;
+
+      // Mark as Processing
+      await Task.findByIdAndUpdate(taskId, {
+        status: "processing",
+        progress: 10,
+        startedAt: new Date(),
+      });
+      console.log(`🔄 Task [${taskId}] marked as Processing in DB.`);
 
       console.log(`📥 Downloading image for Job [${job.id}]...`);
       const response = await axios({
@@ -51,41 +74,46 @@ const imageWorker = new Worker(
       console.log(`🛠️ Processing 4 optimized versions for Job [${job.id}]...`);
       const baseFileName = `job_${job.id}`;
 
-      // INTERVIEW UPGRADE: Promise.allSettled ensures partial success even if one format fails
-      const results = await Promise.allSettled([
-        // Thumbnail (150x150)
+      await Promise.all([
         sharp(imageBuffer)
           .resize(150, 150, { fit: "cover" })
           .toFile(path.join(outputFolder, `${baseFileName}_thumbnail.jpg`)),
-
-        // Medium (500px width)
         sharp(imageBuffer)
           .resize(500)
           .toFile(path.join(outputFolder, `${baseFileName}_medium.jpg`)),
-
-        // Large (1000px width)
         sharp(imageBuffer)
           .resize(1000)
           .toFile(path.join(outputFolder, `${baseFileName}_large.jpg`)),
-
-        // WebP (Compressed version)
         sharp(imageBuffer)
           .webp({ quality: 80 })
           .toFile(path.join(outputFolder, `${baseFileName}_optimized.webp`)),
       ]);
 
-      // Check if any specific processing failed
-      const failedTasks = results.filter((r) => r.status === "rejected");
-      if (failedTasks.length > 0) {
-        console.warn(
-          `⚠️ Job [${job.id}] partially completed with ${failedTasks.length} errors.`,
-        );
-      } else {
-        console.log(
-          `✅ Job [${job.id}] 100% Successfully Completed! Outputs saved.`,
-        );
-      }
+      console.log(`✅ Job [${job.id}] Images Processed Successfully!`);
+
+      // 🔥 FIX 3: Clear errorDetails on success
+      await Task.findByIdAndUpdate(taskId, {
+        status: "completed",
+        progress: 100,
+        errorDetails: null,
+        outputs: {
+          thumbnail: `${baseFileName}_thumbnail.jpg`,
+          medium: `${baseFileName}_medium.jpg`,
+          large: `${baseFileName}_large.jpg`,
+          optimized: `${baseFileName}_optimized.webp`,
+        },
+        completedAt: new Date(),
+      });
+      console.log(`✅ Task [${taskId}] marked as Completed in DB!`);
     } catch (error) {
+      if (taskId) {
+        // 🔥 FIX 2: Reset progress to 0 on failure
+        await Task.findByIdAndUpdate(taskId, {
+          status: "failed",
+          errorDetails: error.message,
+          progress: 0,
+        });
+      }
       console.error(`❌ Job [${job.id}] completely failed:`, error.message);
       throw error;
     }

@@ -2,6 +2,8 @@ import express from "express";
 import dotenv from "dotenv";
 import { connectDB } from "./config/db.js";
 import { imageQueue } from "./queues/imageQueue.js";
+// 🔥 NAYA IMPORT: Task Model
+import { Task } from "./models/Task.model.js";
 
 dotenv.config();
 
@@ -17,19 +19,27 @@ app.get("/health", (req, res) => {
     .json({ status: "OK", message: `TaskFlow API is running on Port ${PORT}` });
 });
 
-// 🚀 PADAV 3: LIVE IMAGE ROUTE (ONLY REQUIRED CHANGE)
+// 🚀 PADAV 4: DATABASE TRACKING ROUTE (FIXED PAYLOAD)
 app.post("/api/test-job", async (req, res) => {
   try {
-    const job = await imageQueue.add("process-image", {
-      message: "Process this HD Nature Image",
-      imageUrl:
-        "https://images.unsplash.com/photo-1506748686214-e9df14d4d9d0?q=80&w=2000&auto=format&fit=crop",
-      timestamp: new Date().toISOString(),
+    // Temporary test image until upload API is implemented
+    const imageUrl =
+      "https://images.unsplash.com/photo-1506748686214-e9df14d4d9d0?q=80&w=2000&auto=format&fit=crop";
+
+    // 1. Create Task document (status automatically 'pending')
+    const task = await Task.create({
+      originalImage: imageUrl,
     });
 
-    res.status(200).json({
+    // 2. Queue mein strictly sirf taskId bhejna hai
+    const job = await imageQueue.add("process-image", {
+      taskId: task._id,
+    });
+
+    res.status(201).json({
       success: true,
-      message: "Image Job pushed to Upstash! 🚀",
+      message: "Image job queued successfully",
+      taskId: task._id,
       jobId: job.id,
     });
   } catch (error) {
