@@ -10,7 +10,6 @@ import { Task } from "./models/Task.model.js";
 
 dotenv.config();
 
-// 🔥 FIX 1: MONGO_URI Validation
 if (!process.env.MONGO_URI) {
   console.error("❌ MONGO_URI missing in .env");
   process.exit(1);
@@ -26,7 +25,6 @@ console.log("👷 Worker starting...");
 await mongoose.connect(process.env.MONGO_URI);
 console.log("📦 Worker connected to MongoDB");
 
-// STABLE UPSTASH CONNECTION
 const connection = new IORedis(process.env.REDIS_URL, {
   maxRetriesPerRequest: null,
   family: 4,
@@ -41,11 +39,10 @@ if (!fs.existsSync(outputFolder)) {
   fs.mkdirSync(outputFolder, { recursive: true });
 }
 
-// BULLMQ WORKER WITH SHARP & DB UPDATES
 const imageWorker = new Worker(
   "image-processing-queue",
   async (job) => {
-    const taskId = job.data.taskId;
+    const taskId = job?.data?.taskId;
     console.log(`\n⚙️ Job [${job.id}] Started! Task ID:`, taskId);
 
     try {
@@ -56,7 +53,8 @@ const imageWorker = new Worker(
 
       const imageUrl = task.originalImage;
 
-      // Mark as Processing
+      // ✅ FIX: Progress to 10%
+      if (job) await job.updateProgress(10);
       await Task.findByIdAndUpdate(taskId, {
         status: "processing",
         progress: 10,
@@ -91,7 +89,8 @@ const imageWorker = new Worker(
 
       console.log(`✅ Job [${job.id}] Images Processed Successfully!`);
 
-      // 🔥 FIX 3: Clear errorDetails on success
+      // ✅ FIX: Progress to 100%
+      if (job) await job.updateProgress(100);
       await Task.findByIdAndUpdate(taskId, {
         status: "completed",
         progress: 100,
@@ -106,21 +105,27 @@ const imageWorker = new Worker(
       });
       console.log(`✅ Task [${taskId}] marked as Completed in DB!`);
     } catch (error) {
+      // ✅ FIX: Defensive catch block
+      if (job) {
+        await job.updateProgress(0);
+      }
+
       if (taskId) {
-        // 🔥 FIX 2: Reset progress to 0 on failure
         await Task.findByIdAndUpdate(taskId, {
           status: "failed",
           errorDetails: error.message,
           progress: 0,
         });
       }
-      console.error(`❌ Job [${job.id}] completely failed:`, error.message);
+      console.error(`❌ Job [${job?.id}] completely failed:`, error.message);
       throw error;
     }
   },
   { connection },
 );
 
-imageWorker.on("ready", () => {
-  console.log("🚀 Worker ready and waiting for jobs...");
-});
+if (imageWorker.listenerCount("ready") === 0) {
+  imageWorker.on("ready", () => {
+    console.log("🚀 Worker ready and waiting for jobs...");
+  });
+}

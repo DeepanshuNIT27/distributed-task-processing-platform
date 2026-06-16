@@ -9,16 +9,18 @@ export const uploadImage = async (req, res) => {
         .json({ success: false, error: "Please upload an image file" });
     }
 
-    // Static URL for MVP. In production, this can be replaced with S3.
     const imageUrl = `${req.protocol}://${req.get("host")}/uploads/original/${req.file.filename}`;
 
     const task = await Task.create({
       originalImage: imageUrl,
     });
 
-    const job = await imageQueue.add("process-image", {
-      taskId: task._id,
-    });
+    // ✅ FIX: BullMQ jobId = MongoDB taskId
+    const job = await imageQueue.add(
+      "process-image",
+      { taskId: task._id },
+      { jobId: task._id.toString() },
+    );
 
     res.status(201).json({
       success: true,
