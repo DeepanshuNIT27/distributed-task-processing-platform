@@ -1,37 +1,35 @@
 import express from "express";
 import dotenv from "dotenv";
 import { connectDB } from "./config/db.js";
-import { imageQueue } from "./queues/imageQueue.js"; // 👈 Naya Queue Import
+import { imageQueue } from "./queues/imageQueue.js";
 
-// Load environment variables (.env file se)
 dotenv.config();
 
 const app = express();
-
-// Set PORT to environment variable or fallback to 5000
 const PORT = process.env.PORT || 5000;
 
-// Middleware to parse JSON bodies (POST requests ke liye zaroori)
 app.use(express.json());
 
-// Health Check API to test the server
+// Health Check API
 app.get("/health", (req, res) => {
   res
     .status(200)
     .json({ status: "OK", message: `TaskFlow API is running on Port ${PORT}` });
 });
 
-// 🚀 PADAV 2: LIVE TEST ROUTE (Job push karne ke liye)
+// 🚀 PADAV 3: LIVE IMAGE ROUTE (ONLY REQUIRED CHANGE)
 app.post("/api/test-job", async (req, res) => {
   try {
     const job = await imageQueue.add("process-image", {
-      message: "Task 1",
+      message: "Process this HD Nature Image",
+      imageUrl:
+        "https://images.unsplash.com/photo-1506748686214-e9df14d4d9d0?q=80&w=2000&auto=format&fit=crop",
       timestamp: new Date().toISOString(),
     });
 
     res.status(200).json({
       success: true,
-      message: "Job pushed to Upstash! 🚀",
+      message: "Image Job pushed to Upstash! 🚀",
       jobId: job.id,
     });
   } catch (error) {
@@ -39,10 +37,9 @@ app.post("/api/test-job", async (req, res) => {
   }
 });
 
-// 🛡️ SAFE BOOT PIPELINE (Crash se bachane ke liye)
+// 🛡️ SAFE BOOT PIPELINE
 connectDB()
   .then(() => {
-    // Start the Express Server ONLY when DB is connected
     app.listen(PORT, () => {
       console.log(`🚀 Server is running on http://localhost:${PORT}`);
     });
