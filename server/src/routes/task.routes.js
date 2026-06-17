@@ -1,10 +1,21 @@
 import express from "express";
-import { uploadImage } from "../controllers/task.controller.js";
+
+import {
+  uploadImage,
+  getAllTasks,
+  getTaskById,
+} from "../controllers/task.controller.js";
 import { upload } from "../middleware/upload.middleware.js";
+
 
 const router = express.Router();
 
-// The key "image" must match the form-data key in frontend/Postman
+
 router.post("/upload", upload.single("image"), uploadImage);
+
+
+router.get("/tasks", getAllTasks);
+
+router.get("/tasks/:id", getTaskById);
 
 export default router;

@@ -1,50 +1,64 @@
-import express from "express";
-import dotenv from "dotenv";
-import path from "path";
-import http from "http";
-import { connectDB } from "./config/db.js";
-import taskRoutes from "./routes/task.routes.js";
-import { initSocket } from "./sockets/task.socket.js";
-import { setupQueueEvents } from "./queues/queue.events.js";
+import "dotenv/config";
 
-dotenv.config();
+import express from "express";
+import http from "http";
+import cors from "cors";
+import { Server } from "socket.io";
+
+import { connectDB } from "./config/db.js";
+
+import { setIO } from "./sockets/socket.instance.js";
+import { setupQueueEvents } from "./events/queue.events.js";
+
+import taskRoutes from "./routes/task.routes.js";
+import dashboardRoutes from "./routes/dashboard.routes.js";
 
 const app = express();
-const PORT = process.env.PORT || 5000;
 const server = http.createServer(app);
 
+// Connect MongoDB
+await connectDB();
+
+// --- Middlewares ---
+app.use(cors());
 app.use(express.json());
 
-const staticUploadsPath = path.join(process.cwd(), "src/uploads");
-app.use("/uploads", express.static(staticUploadsPath));
-
-app.get("/health", (req, res) => {
-  res
-    .status(200)
-    .json({ status: "OK", message: `TaskFlow API running on Port ${PORT}` });
+// Initialize Socket.IO
+const io = new Server(server, {
+  cors: {
+    origin: "*",
+  },
 });
 
-app.use("/api", taskRoutes);
+setIO(io);
 
-// 🔥 FIX: Safer Boot Order. Start the server first, then try connecting to background events.
-connectDB()
-  .then(() => {
-    initSocket(server);
+// Socket Rooms
+io.on("connection", (socket) => {
+  console.log("🟢 Client connected:", socket.id);
 
-    // 1. API and Sockets are alive NOW
-    server.listen(PORT, () => {
-      console.log(`🚀 Server is running on http://localhost:${PORT}`);
-    });
+  socket.on("join-task-room", (taskId) => {
+    if (!taskId) return;
 
-    // 2. Connect to Redis Queue Events independently in the background
-    setupQueueEvents().catch((err) => {
-      console.error(
-        "⚠️ Non-Fatal: Failed to connect to background queue events.",
-        err.message,
-      );
-    });
-  })
-  .catch((err) => {
-    console.error("❌ DB connection failed. Server boot aborted.", err.message);
-    process.exit(1);
+    socket.join(taskId);
+    console.log(`📡 Client ${socket.id} joined room: ${taskId}`);
   });
+
+  socket.on("leave-task-room", (taskId) => {
+    if (!taskId) return;
+
+    socket.leave(taskId);
+  });
+});
+
+// Start BullMQ → Socket bridge
+setupQueueEvents();
+
+// API Routes
+app.use("/api/tasks", taskRoutes);
+app.use("/api/dashboard", dashboardRoutes);
+
+const PORT = process.env.PORT || 5000;
+
+server.listen(PORT, () => {
+  console.log(`🚀 API Server running on port ${PORT}`);
+});

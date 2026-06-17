@@ -2,6 +2,7 @@ import multer from "multer";
 import path from "path";
 import fs from "fs";
 
+
 // Assuming server is started using: cd server && npm run dev
 const uploadsPath = path.join(process.cwd(), "src/uploads/original");
 

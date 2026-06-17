@@ -69,6 +69,10 @@ const imageWorker = new Worker(
       });
       const imageBuffer = Buffer.from(response.data, "binary");
 
+      // 🔥 Added for 7.4: Intermediate progress for smoother real-time UI
+      if (job) await job.updateProgress(50);
+      await Task.findByIdAndUpdate(taskId, { progress: 50 });
+
       console.log(`🛠️ Processing 4 optimized versions for Job [${job.id}]...`);
       const baseFileName = `job_${job.id}`;
 
@@ -89,21 +93,27 @@ const imageWorker = new Worker(
 
       console.log(`✅ Job [${job.id}] Images Processed Successfully!`);
 
+      // Prepare outputs object to be saved and returned
+      const outputs = {
+        thumbnail: `${baseFileName}_thumbnail.jpg`,
+        medium: `${baseFileName}_medium.jpg`,
+        large: `${baseFileName}_large.jpg`,
+        optimized: `${baseFileName}_optimized.webp`,
+      };
+
       // ✅ FIX: Progress to 100%
       if (job) await job.updateProgress(100);
       await Task.findByIdAndUpdate(taskId, {
         status: "completed",
         progress: 100,
         errorDetails: null,
-        outputs: {
-          thumbnail: `${baseFileName}_thumbnail.jpg`,
-          medium: `${baseFileName}_medium.jpg`,
-          large: `${baseFileName}_large.jpg`,
-          optimized: `${baseFileName}_optimized.webp`,
-        },
+        outputs: outputs,
         completedAt: new Date(),
       });
       console.log(`✅ Task [${taskId}] marked as Completed in DB!`);
+
+      // 🔥 CRITICAL FIX FOR 7.4: Return outputs so QueueEvents on backend can catch it
+      return outputs;
     } catch (error) {
       // ✅ FIX: Defensive catch block
       if (job) {
@@ -124,8 +134,7 @@ const imageWorker = new Worker(
   { connection },
 );
 
-if (imageWorker.listenerCount("ready") === 0) {
-  imageWorker.on("ready", () => {
-    console.log("🚀 Worker ready and waiting for jobs...");
-  });
-}
+// 🔥 FIX: Replaced listenerCount check with simple .once()
+imageWorker.once("ready", () => {
+  console.log("🚀 Worker ready and waiting for jobs...");
+});
