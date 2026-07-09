@@ -12,6 +12,7 @@ import { setupQueueEvents } from "./events/queue.events.js";
 
 import taskRoutes from "./routes/task.routes.js";
 import dashboardRoutes from "./routes/dashboard.routes.js";
+import authRoutes from "./routes/auth.routes.js"; // 🔥 Naya import add kiya
 
 const app = express();
 const server = http.createServer(app);
@@ -54,6 +55,7 @@ io.on("connection", (socket) => {
 setupQueueEvents();
 
 // API Routes
+app.use("/api/auth", authRoutes); // 🔥 Naya auth route mount kiya
 app.use("/api/tasks", taskRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 

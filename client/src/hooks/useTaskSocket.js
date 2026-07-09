@@ -5,18 +5,32 @@ export const useTaskSocket = (taskId, onEvent) => {
   useEffect(() => {
     if (!taskId) return;
 
-    socket.connect();
+    // ⚡ SDE Polish: Connect only if disconnected (prevents multiple handshake calls)
+    if (!socket.connected) {
+      socket.connect();
+    }
+
     socket.emit("join-task-room", taskId);
 
-    socket.on("TASK_PROCESSING", (data) => onEvent("processing", data));
-    socket.on("TASK_PROGRESS", (data) => onEvent("progress", data));
-    socket.on("TASK_COMPLETED", (data) => onEvent("completed", data));
-    socket.on("TASK_FAILED", (data) => onEvent("failed", data));
+    // Named handlers so we can cleanly remove ONLY these specific listeners
+    const handleProcessing = (data) => onEvent("processing", data);
+    const handleProgress = (data) => onEvent("progress", data);
+    const handleCompleted = (data) => onEvent("completed", data);
+    const handleFailed = (data) => onEvent("failed", data);
+
+    socket.on("TASK_PROCESSING", handleProcessing);
+    socket.on("TASK_PROGRESS", handleProgress);
+    socket.on("TASK_COMPLETED", handleCompleted);
+    socket.on("TASK_FAILED", handleFailed);
 
     return () => {
+      // ⚡ SDE Polish: Leave room, but ONLY remove this component's listeners.
+      // Do NOT call socket.disconnect() or removeAllListeners() if socket is shared!
       socket.emit("leave-task-room", taskId);
-      socket.removeAllListeners(); // ⚡ SDE Polish: Safer cleanup than multiple .off() calls
-      socket.disconnect();
+      socket.off("TASK_PROCESSING", handleProcessing);
+      socket.off("TASK_PROGRESS", handleProgress);
+      socket.off("TASK_COMPLETED", handleCompleted);
+      socket.off("TASK_FAILED", handleFailed);
     };
   }, [taskId, onEvent]);
 };

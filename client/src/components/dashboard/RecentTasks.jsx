@@ -1,4 +1,8 @@
+import { useNavigate } from "react-router-dom"; // 1. Added Import
+
 export const RecentTasks = ({ tasks }) => {
+  const navigate = useNavigate(); // 2. Initialized Hook
+
   const getStatusColor = (status) => {
     switch (status?.toLowerCase()) {
       case "completed":
@@ -16,7 +20,11 @@ export const RecentTasks = ({ tasks }) => {
     <div className="bg-[#11151c] border border-gray-800 rounded-2xl p-6 mt-6">
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-lg font-bold text-white">Recent Tasks</h2>
-        <button className="text-sm text-gray-400 hover:text-white px-3 py-1 border border-gray-800 rounded-lg transition">
+        {/* 3. Added onClick to navigate to History */}
+        <button
+          onClick={() => navigate("/history")}
+          className="text-sm text-gray-400 hover:text-white px-3 py-1 border border-gray-800 rounded-lg transition"
+        >
           View All
         </button>
       </div>
@@ -40,8 +48,10 @@ export const RecentTasks = ({ tasks }) => {
               </tr>
             ) : (
               tasks.map((task) => (
+                /* 4. Added onClick to navigate to specific dynamic Task ID */
                 <tr
                   key={task._id}
+                  onClick={() => navigate(`/task/${task._id}`)}
                   className="hover:bg-gray-800/30 transition-colors cursor-pointer"
                 >
                   <td className="py-4 font-mono text-gray-400">

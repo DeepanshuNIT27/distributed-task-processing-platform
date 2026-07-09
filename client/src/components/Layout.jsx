@@ -4,21 +4,20 @@ import Navbar from "./Navbar";
 
 export default function Layout() {
   return (
-    <div className="flex min-h-screen bg-slate-950">
-      {/* 1. FIXED SIDEBAR WRAPPER: Scroll hone par hilega nahi */}
-      <div className="fixed top-0 left-0 h-screen w-64 z-40">
-        <Sidebar />
-      </div>
+    <div className="flex h-screen bg-[#050816] text-white overflow-hidden font-sans">
+      {/* 1. Left Fixed Sidebar */}
+      <Sidebar />
 
-      {/* 2. MAIN CONTENT: Sidebar ki width (64) ke barabar margin-left (ml-64) de diya */}
-      <main className="ml-64 flex-1 flex flex-col min-h-screen w-[calc(100%-16rem)]">
+      {/* 2. Main Content Area */}
+      <div className="flex-1 flex flex-col h-screen overflow-hidden relative">
+        {/* 3. Top Navbar */}
         <Navbar />
 
-        {/* Pages render here */}
-        <div className="p-4 md:p-8 flex flex-col gap-8 flex-1 overflow-auto custom-scrollbar">
+        {/* 4. Page Content (Outlet renders Dashboard, History, etc.) */}
+        <main className="flex-1 overflow-x-hidden overflow-y-auto p-6 md:p-8 custom-scrollbar">
           <Outlet />
-        </div>
-      </main>
+        </main>
+      </div>
     </div>
   );
 }
