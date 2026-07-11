@@ -1,5 +1,13 @@
 export const StatsGrid = ({ stats }) => {
-  const data = stats || { pending: 0, processing: 0, completed: 0, failed: 0 };
+  // 🔥 UPDATED: Added total and successRate defaults
+  const data = stats || {
+    total: 0,
+    pending: 0,
+    processing: 0,
+    completed: 0,
+    failed: 0,
+    successRate: 0,
+  };
 
   const dynamicCards = [
     { title: "Queued Jobs", value: data.pending, color: "text-blue-400" },
@@ -12,11 +20,16 @@ export const StatsGrid = ({ stats }) => {
     { title: "Failed Jobs", value: data.failed, color: "text-red-400" },
   ];
 
+  // 🔥 UPDATED: Made Total Tasks and Success Rate dynamic based on DB!
   const staticCards = [
     { title: "Active Workers", value: "3 / 3", color: "text-indigo-400" },
-    { title: "Queue Size", value: "32", color: "text-purple-400" },
+    { title: "Total Tasks", value: data.total, color: "text-purple-400" },
     { title: "Throughput / hr", value: "86", color: "text-gray-400" },
-    { title: "Success Rate", value: "95.7%", color: "text-green-400" },
+    {
+      title: "Success Rate",
+      value: `${data.successRate}%`,
+      color: "text-green-400",
+    },
   ];
 
   return (

@@ -48,11 +48,33 @@ export default function CreateTask() {
     }
   };
 
+  // 🔥 NEW: Phase 9.4 Strict Frontend Validation
+  const validateAndSetFile = (selectedFile) => {
+    if (!selectedFile) return;
+
+    // 1. Check File Type
+    const allowedTypes = ["image/jpeg", "image/png", "image/webp"];
+    if (!allowedTypes.includes(selectedFile.type)) {
+      toast.error("Invalid file type! Only JPEG, PNG, and WEBP are allowed.");
+      return;
+    }
+
+    // 2. Check File Size (Max 5MB)
+    const maxSize = 5 * 1024 * 1024;
+    if (selectedFile.size > maxSize) {
+      toast.error("File is too large! Maximum allowed size is 5MB.");
+      return;
+    }
+
+    // If passed, set the file
+    setFile(selectedFile);
+  };
+
   // --- UI HELPERS ---
   const handleDrop = (e) => {
     e.preventDefault();
     const droppedFile = e.dataTransfer.files[0];
-    if (droppedFile) setFile(droppedFile);
+    validateAndSetFile(droppedFile); // 🔥 Updated to use strict validation
   };
 
   const removeFile = () => {
@@ -132,9 +154,9 @@ export default function CreateTask() {
               <input
                 type="file"
                 ref={fileInputRef}
-                onChange={(e) => setFile(e.target.files[0])}
+                onChange={(e) => validateAndSetFile(e.target.files[0])} // 🔥 Updated to use strict validation
                 className="hidden"
-                accept="image/*"
+                accept="image/jpeg, image/png, image/webp" // 🔥 Updated for stricter OS picker
               />
             </div>
           </div>

@@ -2,7 +2,6 @@ import multer from "multer";
 import path from "path";
 import fs from "fs";
 
-
 // Assuming server is started using: cd server && npm run dev
 const uploadsPath = path.join(process.cwd(), "src/uploads/original");
 
@@ -21,11 +20,28 @@ const storage = multer.diskStorage({
   },
 });
 
+// 🔥 Phase 9.3: STRICT File Validation (Format Check)
 const fileFilter = (req, file, cb) => {
-  if (file.mimetype.startsWith("image/")) {
+  // 1. Allowed File Extensions
+  const allowedFileTypes = /jpeg|jpg|png|webp/;
+  // 2. Allowed Mime Types
+  const allowedMimeTypes = /image\/jpeg|image\/png|image\/webp/;
+
+  // Check extension and mimetype
+  const extname = allowedFileTypes.test(
+    path.extname(file.originalname).toLowerCase(),
+  );
+  const mimetype = allowedMimeTypes.test(file.mimetype);
+
+  if (extname && mimetype) {
     cb(null, true);
   } else {
-    cb(new Error("Only image files are allowed!"), false);
+    cb(
+      new Error(
+        "Invalid file type! Only JPEG, JPG, PNG, and WEBP images are allowed.",
+      ),
+      false,
+    );
   }
 };
 

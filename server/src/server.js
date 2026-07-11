@@ -24,6 +24,11 @@ await connectDB();
 app.use(cors());
 app.use(express.json());
 
+// 🔥 CRITICAL FIX: In folders ko public kiya taaki Worker image download kar sake aur Frontend unhe dekh sake!
+// 🔥 CRITICAL FIX: Express ko exact "src/uploads" ka rasta de diya
+app.use("/uploads", express.static("src/uploads"));
+app.use("/outputs", express.static("outputs"));
+
 // Initialize Socket.IO
 const io = new Server(server, {
   cors: {

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "../hooks/useAuth";
 import toast from "react-hot-toast";
 import { Link } from "react-router-dom";
@@ -13,6 +13,10 @@ import {
   Activity,
 } from "lucide-react";
 import { taskService } from "../services/task.service";
+import { api } from "../services/api";
+
+// 🔥 IMPORT THE NEW HOOK
+import { useDashboardSocket } from "../hooks/useTaskSocket";
 
 // Components
 import { StatsGrid } from "../components/dashboard/StatsGrid";
@@ -23,28 +27,53 @@ import { ArchitectureCard } from "../components/dashboard/ArchitectureCard";
 export default function Dashboard() {
   const { user } = useAuth();
   const [tasks, setTasks] = useState([]);
+
+  const [analytics, setAnalytics] = useState({
+    total: 0,
+    completed: 0,
+    failed: 0,
+    processing: 0,
+    pending: 0,
+    successRate: 0,
+  });
+
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchTasks();
+  // 🔥 Wrapped in useCallback so it doesn't cause infinite re-renders in socket hook
+  const fetchDashboardData = useCallback(async (showLoading = true) => {
+    try {
+      if (showLoading) setLoading(true);
+      const [tasksData, statsResponse] = await Promise.all([
+        taskService.getTasks(),
+        api.get("/api/tasks/analytics"),
+      ]);
+
+      setTasks(tasksData.tasks || []);
+
+      if (statsResponse.data?.analytics) {
+        setAnalytics(statsResponse.data.analytics);
+      }
+    } catch (error) {
+      toast.error(
+        error.response?.data?.message || "Failed to load dashboard data",
+      );
+    } finally {
+      if (showLoading) setLoading(false);
+    }
   }, []);
 
-  const fetchTasks = async () => {
-    try {
-      setLoading(true);
-      const data = await taskService.getTasks();
-      setTasks(data.tasks || []);
-    } catch (error) {
-      toast.error(error.response?.data?.message || "Failed to load tasks");
-    } finally {
-      setLoading(false);
-    }
-  };
+  useEffect(() => {
+    fetchDashboardData(true); // Initial load with spinner
+  }, [fetchDashboardData]);
 
-  // --- 1. DYNAMIC GRAPH LOGIC ---
+  // 🔥 ADDED: Listen for Global Socket Updates and fetch data silently (without spinner)
+  useDashboardSocket(() => {
+    fetchDashboardData(false);
+  });
+
+  // --- DYNAMIC GRAPH LOGIC ---
   const generateChartData = (allTasks) => {
     const days = 7;
-    // Pichle 7 din ka blank array banao
     const data = Array.from({ length: days }).map((_, i) => {
       const d = new Date();
       d.setDate(d.getDate() - (days - 1 - i));
@@ -60,7 +89,6 @@ export default function Dashboard() {
       };
     });
 
-    // Actual tasks ko unke din ke hisaab se count karo
     allTasks.forEach((task) => {
       if (!task.createdAt) return;
       const taskDate = new Date(task.createdAt);
@@ -79,12 +107,11 @@ export default function Dashboard() {
       1,
     );
 
-    // SVG coordinates generate karo (width 210, height 120 ke scale pe)
     const getPoints = (type) => {
       return data
         .map((d, i) => {
           const x = i * (210 / (days - 1));
-          const y = 120 - (d[type] / maxVal) * 100; // 100 is max height limit for graph lines
+          const y = 120 - (d[type] / maxVal) * 100;
           return `${i === 0 ? "M" : "L"}${x},${y}`;
         })
         .join(" ");
@@ -99,11 +126,11 @@ export default function Dashboard() {
 
   const chartData = generateChartData(tasks);
 
-  // --- 2. DYNAMIC NOTIFICATIONS LOGIC ---
+  // --- DYNAMIC NOTIFICATIONS LOGIC ---
   const recentNotifications = [...tasks]
     .filter((t) => t.createdAt)
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
-    .slice(0, 3); // Sirf top 3
+    .slice(0, 3);
 
   const timeAgo = (date) => {
     const seconds = Math.floor((new Date() - new Date(date)) / 1000);
@@ -122,6 +149,9 @@ export default function Dashboard() {
     );
   }
 
+  // 🔥 CHECK IF ANY TASK IS PROCESSING
+  const isProcessing = analytics.processing > 0;
+
   return (
     <div className="space-y-6 max-w-[1600px] mx-auto w-full pb-8">
       {/* Header Section */}
@@ -139,21 +169,21 @@ export default function Dashboard() {
       </div>
 
       {/* Row 1: Top Stats Grid */}
-      <StatsGrid />
+      <StatsGrid stats={analytics} />
 
-      {/* Row 2: Recent Tasks & Worker Status (Side-by-Side, Equal Height) */}
+      {/* Row 2: Recent Tasks & Worker Status */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 mt-6 items-stretch">
         <div className="xl:col-span-2 h-full">
           <RecentTasks tasks={tasks} />
         </div>
         <div className="xl:col-span-1 h-full">
-          <WorkerStatus />
+          <WorkerStatus analytics={analytics} />
         </div>
       </div>
 
-      {/* Row 3: 4 Widgets in a 2x2 Grid */}
+      {/* Row 3: Widgets Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
-        {/* Widget 1: DYNAMIC Processing Performance Chart */}
+        {/* Widget 1: Processing Performance Chart */}
         <div className="bg-[#11151c] border border-slate-800 rounded-2xl p-6 flex flex-col">
           <div className="flex items-center justify-between mb-6">
             <h3 className="text-sm font-medium text-slate-200">
@@ -174,7 +204,6 @@ export default function Dashboard() {
             </div>
           </div>
           <div className="relative h-32 w-full flex-1 mt-auto">
-            {/* Real Dynamic SVG */}
             <svg
               className="absolute inset-0 w-full h-full overflow-visible"
               preserveAspectRatio="none"
@@ -213,7 +242,7 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Widget 2: System Nodes (Worker Status Detailed) */}
+        {/* Widget 2: System Nodes */}
         <div className="bg-[#11151c] border border-slate-800 rounded-2xl p-6 flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between mb-6">
@@ -234,24 +263,35 @@ export default function Dashboard() {
                     <p className="text-xs text-emerald-400">Online</p>
                   </div>
                 </div>
-                <span className="text-xs text-slate-400">Sharp Processor</span>
+                <span className="text-xs text-slate-400">API Server</span>
               </div>
+
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-amber-500/10 flex items-center justify-center border border-amber-500/20">
-                    <Loader2
-                      size={14}
-                      className="text-amber-500 animate-spin"
-                    />
+                  <div
+                    className={`w-8 h-8 rounded-full flex items-center justify-center border ${isProcessing ? "bg-amber-500/10 border-amber-500/20" : "bg-emerald-500/10 border-emerald-500/20"}`}
+                  >
+                    {isProcessing ? (
+                      <Loader2
+                        size={14}
+                        className="text-amber-500 animate-spin"
+                      />
+                    ) : (
+                      <CheckCircle2 size={14} className="text-emerald-500" />
+                    )}
                   </div>
                   <div>
                     <p className="text-sm font-medium text-slate-200">
                       Node-Beta
                     </p>
-                    <p className="text-xs text-amber-400">Processing</p>
+                    <p
+                      className={`text-xs ${isProcessing ? "text-amber-400" : "text-emerald-400"}`}
+                    >
+                      {isProcessing ? "Processing" : "Idle"}
+                    </p>
                   </div>
                 </div>
-                <span className="text-xs text-slate-400">Queue Active</span>
+                <span className="text-xs text-slate-400">Sharp Processor</span>
               </div>
             </div>
           </div>
@@ -260,7 +300,7 @@ export default function Dashboard() {
           </button>
         </div>
 
-        {/* Widget 3: DYNAMIC Recent Notifications */}
+        {/* Widget 3: Recent Notifications */}
         <div className="bg-[#11151c] border border-slate-800 rounded-2xl p-6 flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between mb-6">
@@ -368,7 +408,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Row 4: System Architecture (Full Width at Bottom) */}
+      {/* Row 4: System Architecture */}
       <div className="w-full mt-6">
         <ArchitectureCard />
       </div>

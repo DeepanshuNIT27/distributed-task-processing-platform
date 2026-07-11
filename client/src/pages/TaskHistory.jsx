@@ -12,11 +12,15 @@ import {
   Clock,
   ChevronLeft,
   ChevronRight,
+  RefreshCw,
 } from "lucide-react";
 import { api } from "../services/api";
 import { TableSkeleton } from "../components/common/TableSkeleton";
 import { EmptyState } from "../components/common/EmptyState";
 import { ErrorState } from "../components/common/ErrorState";
+
+// 🔥 ADDED: Import socket instance
+import { socket } from "../services/socket";
 
 export default function TaskHistory() {
   const navigate = useNavigate();
@@ -24,9 +28,11 @@ export default function TaskHistory() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  const [retryingId, setRetryingId] = useState(null);
+
   // --- PAGINATION STATES ---
   const [currentPage, setCurrentPage] = useState(1);
-  const tasksPerPage = 5; // Ek page par kitne task dikhane hain
+  const tasksPerPage = 5;
 
   const fetchTasks = async () => {
     setIsLoading(true);
@@ -48,6 +54,77 @@ export default function TaskHistory() {
   useEffect(() => {
     fetchTasks();
   }, []);
+
+  // 🔥 ADDED: Phase 9.6 - Socket Event Listeners for Live Updates
+  useEffect(() => {
+    // Socket connect karo
+    socket.connect();
+
+    // Universal update handler
+    const handleTaskUpdate = (data) => {
+      // Backend generally sends { taskId, progress, status, ... }
+      const targetId = data.taskId || data._id;
+      if (!targetId) return;
+
+      setTasks((prevTasks) =>
+        prevTasks.map((task) =>
+          task._id === targetId ? { ...task, ...data } : task,
+        ),
+      );
+    };
+
+    // Listen to standard events emitted by backend QueueEvents
+    socket.on("task_progress", handleTaskUpdate);
+    socket.on("task_completed", handleTaskUpdate);
+    socket.on("task_failed", handleTaskUpdate);
+    socket.on("task_updated", handleTaskUpdate); // Catch-all if backend uses this
+
+    // Cleanup on unmount
+    return () => {
+      socket.off("task_progress", handleTaskUpdate);
+      socket.off("task_completed", handleTaskUpdate);
+      socket.off("task_failed", handleTaskUpdate);
+      socket.off("task_updated", handleTaskUpdate);
+      socket.disconnect();
+    };
+  }, []);
+
+  // 🔥 ADDED: Phase 9.6 - Join Socket Rooms dynamically for active tasks
+  useEffect(() => {
+    // Sirf un tasks ke room join karo jo abhi complete ya fail nahi hue hain
+    const activeTasks = tasks.filter(
+      (t) => t.status === "pending" || t.status === "processing",
+    );
+
+    activeTasks.forEach((task) => {
+      socket.emit("join-task-room", task._id);
+    });
+
+    return () => {
+      activeTasks.forEach((task) => {
+        socket.emit("leave-task-room", task._id);
+      });
+    };
+  }, [tasks]); // Re-run when tasks array changes
+
+  const handleRetry = async (taskId) => {
+    if (!taskId) return;
+    setRetryingId(taskId);
+
+    try {
+      await api.post(`/api/tasks/${taskId}/retry`);
+      console.log(`✅ Task ${taskId} sent for retry!`);
+      await fetchTasks();
+    } catch (error) {
+      console.error("Retry Error:", error);
+      alert(
+        "Failed to retry task: " +
+          (error.response?.data?.error || error.message),
+      );
+    } finally {
+      setRetryingId(null);
+    }
+  };
 
   // --- DYNAMIC PAGINATION LOGIC ---
   const indexOfLastTask = currentPage * tasksPerPage;
@@ -192,7 +269,6 @@ export default function TaskHistory() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/50">
-                  {/* 🔥 FIX: Yahan 'tasks' ki jagah 'currentTasks' use ho raha hai */}
                   {currentTasks.map((task) => (
                     <tr
                       key={task._id}
@@ -211,7 +287,7 @@ export default function TaskHistory() {
                         <div className="flex items-center gap-3">
                           <div className="w-full bg-slate-900 rounded-full h-1.5 overflow-hidden border border-slate-800">
                             <div
-                              className={`h-full rounded-full ${task.status === "failed" ? "bg-red-500" : task.status === "completed" ? "bg-[#7C3AED]" : "bg-[#7C3AED]"}`}
+                              className={`h-full rounded-full transition-all duration-500 ease-out ${task.status === "failed" ? "bg-red-500" : task.status === "completed" ? "bg-[#7C3AED]" : "bg-[#7C3AED]"}`}
                               style={{
                                 width: `${task.progress || (task.status === "completed" ? 100 : 0)}%`,
                               }}
@@ -231,7 +307,7 @@ export default function TaskHistory() {
                         })}
                       </td>
 
-                      {/* 🔥 FIX: Actions hamesha visible rahenge */}
+                      {/* Actions Column */}
                       <td className="py-4 px-4">
                         <div className="flex items-center justify-center gap-4 text-slate-400">
                           <button
@@ -241,12 +317,31 @@ export default function TaskHistory() {
                           >
                             <Eye size={18} />
                           </button>
+
                           {task.status === "completed" && (
                             <button
                               className="hover:text-[#7C3AED] transition"
                               title="Download Outputs"
                             >
                               <Download size={18} />
+                            </button>
+                          )}
+
+                          {task.status === "failed" && (
+                            <button
+                              onClick={() => handleRetry(task._id)}
+                              disabled={retryingId === task._id}
+                              className="hover:text-blue-400 transition disabled:opacity-50"
+                              title="Retry Failed Task"
+                            >
+                              {retryingId === task._id ? (
+                                <Loader2
+                                  size={18}
+                                  className="animate-spin text-blue-400"
+                                />
+                              ) : (
+                                <RefreshCw size={18} />
+                              )}
                             </button>
                           )}
                         </div>
@@ -259,7 +354,7 @@ export default function TaskHistory() {
           )}
         </div>
 
-        {/* 🔥 FIX: Real Dynamic Pagination (Sirf tabhi dikhega jab zaroorat hogi) */}
+        {/* Dynamic Pagination */}
         {!isLoading && totalPages > 1 && (
           <div className="flex items-center justify-center gap-2 mt-8 pt-6 border-t border-slate-800">
             <button

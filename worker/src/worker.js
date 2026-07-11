@@ -34,7 +34,8 @@ const connection = new IORedis(process.env.REDIS_URL, {
 connection.once("ready", () => console.log("✅ Redis authenticated & ready"));
 connection.on("error", (err) => console.error("❌ Redis Error:", err.message));
 
-const outputFolder = path.resolve("outputs");
+// 🔥 CRITICAL FIX: Worker ko force kiya ki wo file 'server/outputs' mein save kare
+const outputFolder = path.resolve("../server/outputs");
 if (!fs.existsSync(outputFolder)) {
   fs.mkdirSync(outputFolder, { recursive: true });
 }
@@ -53,7 +54,7 @@ const imageWorker = new Worker(
 
       const imageUrl = task.originalImage;
 
-      // ✅ FIX: Progress to 10%
+      // ✅ Update Progress to 10%
       if (job) await job.updateProgress(10);
       await Task.findByIdAndUpdate(taskId, {
         status: "processing",
@@ -62,6 +63,9 @@ const imageWorker = new Worker(
       });
       console.log(`🔄 Task [${taskId}] marked as Processing in DB.`);
 
+      // 🔥 UI TESTING DELAY: Live progress dekhne ke liye 2 second ka pause
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+
       console.log(`📥 Downloading image for Job [${job.id}]...`);
       const response = await axios({
         url: imageUrl,
@@ -69,9 +73,21 @@ const imageWorker = new Worker(
       });
       const imageBuffer = Buffer.from(response.data, "binary");
 
-      // 🔥 Added for 7.4: Intermediate progress for smoother real-time UI
+      console.log(`🔍 Validating file format for Job [${job.id}]...`);
+      try {
+        await sharp(imageBuffer).metadata();
+      } catch (err) {
+        throw new Error(
+          "Invalid image format! Sharp cannot process this file (It might be a PDF or corrupted).",
+        );
+      }
+
+      // ✅ Update Progress to 50%
       if (job) await job.updateProgress(50);
       await Task.findByIdAndUpdate(taskId, { progress: 50 });
+
+      // 🔥 UI TESTING DELAY: Live progress dekhne ke liye 2 second ka pause
+      await new Promise((resolve) => setTimeout(resolve, 2000));
 
       console.log(`🛠️ Processing 4 optimized versions for Job [${job.id}]...`);
       const baseFileName = `job_${job.id}`;
@@ -93,7 +109,6 @@ const imageWorker = new Worker(
 
       console.log(`✅ Job [${job.id}] Images Processed Successfully!`);
 
-      // Prepare outputs object to be saved and returned
       const outputs = {
         thumbnail: `${baseFileName}_thumbnail.jpg`,
         medium: `${baseFileName}_medium.jpg`,
@@ -101,7 +116,7 @@ const imageWorker = new Worker(
         optimized: `${baseFileName}_optimized.webp`,
       };
 
-      // ✅ FIX: Progress to 100%
+      // ✅ Update Progress to 100%
       if (job) await job.updateProgress(100);
       await Task.findByIdAndUpdate(taskId, {
         status: "completed",
@@ -112,29 +127,55 @@ const imageWorker = new Worker(
       });
       console.log(`✅ Task [${taskId}] marked as Completed in DB!`);
 
-      // 🔥 CRITICAL FIX FOR 7.4: Return outputs so QueueEvents on backend can catch it
       return outputs;
     } catch (error) {
-      // ✅ FIX: Defensive catch block
       if (job) {
         await job.updateProgress(0);
       }
 
-      if (taskId) {
-        await Task.findByIdAndUpdate(taskId, {
-          status: "failed",
-          errorDetails: error.message,
-          progress: 0,
-        });
+      // 🔥 PHASE 9.8 DLQ LOGIC
+      const maxAttempts = job?.opts?.attempts || 1;
+      const attemptsMade = job?.attemptsMade || 0;
+
+      // Agar worker saare attempts (3) try kar chuka hai tabhi permanent fail (DLQ) maano
+      if (attemptsMade >= maxAttempts - 1) {
+        if (taskId) {
+          await Task.findByIdAndUpdate(taskId, {
+            status: "failed",
+            errorDetails: `DLQ (Final Failure): ${error.message}`,
+            progress: 0,
+          });
+        }
+        console.error(
+          `💀 DLQ: Job [${job?.id}] permanently failed after ${maxAttempts} attempts:`,
+          error.message,
+        );
+      } else {
+        console.warn(
+          `⚠️ Job [${job?.id}] failed (Attempt ${attemptsMade + 1}/${maxAttempts}). Queuing for retry...`,
+        );
       }
-      console.error(`❌ Job [${job?.id}] completely failed:`, error.message);
+
+      // Error throw karna zaroori hai tabhi BullMQ usko wapas queue/DLQ mein daalega
       throw error;
     }
   },
-  { connection },
+  {
+    connection,
+    // 🔥 PHASE 9.9: WORKER RECOVERY SETTINGS (ZOMBIE KILLER)
+    lockDuration: 30000,
+    stalledInterval: 30000,
+    maxStalledCount: 2,
+  },
 );
 
-// 🔥 FIX: Replaced listenerCount check with simple .once()
 imageWorker.once("ready", () => {
   console.log("🚀 Worker ready and waiting for jobs...");
+});
+
+// 🔥 PHASE 9.9: ZOMBIE LISTENER (Jab crashed task wapas recover ho)
+imageWorker.on("stalled", (jobId) => {
+  console.warn(
+    `🧟‍♂️ ZOMBIE DETECTED: Job [${jobId}] stalled (Worker crashed). Recovering it back to queue...`,
+  );
 });

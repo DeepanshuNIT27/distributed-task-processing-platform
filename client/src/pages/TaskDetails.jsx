@@ -82,6 +82,20 @@ export default function TaskDetails() {
     );
   }
 
+  // 🔥 ADDED: Helper to safely construct Image URLs regardless of how DB saved them
+  const getImageUrl = (pathOrName, isOriginal = false) => {
+    if (!pathOrName) return "";
+    if (pathOrName.startsWith("http")) return pathOrName;
+
+    // Remove any accidental folder paths to get exact filename
+    const filename = pathOrName.split(/[\\/]/).pop();
+
+    if (isOriginal) {
+      return `${BACKEND_URL}/uploads/original/${filename}`;
+    }
+    return `${BACKEND_URL}/outputs/${filename}`;
+  };
+
   // --- UI HELPERS FOR TARGET DESIGN ---
   const circleRadius = 60;
   const circleCircumference = 2 * Math.PI * circleRadius;
@@ -355,8 +369,9 @@ export default function TaskDetails() {
                     className="flex items-center gap-4 bg-slate-900/50 border border-slate-800 p-3 rounded-xl hover:border-slate-700 transition"
                   >
                     <div className="w-16 h-16 bg-slate-800 rounded-lg overflow-hidden flex-shrink-0">
+                      {/* 🔥 FIXED: Use Helper for Image URL */}
                       <img
-                        src={`${BACKEND_URL}/outputs/${filename}`}
+                        src={getImageUrl(filename, false)}
                         alt={key}
                         className="w-full h-full object-cover"
                       />
@@ -367,8 +382,9 @@ export default function TaskDetails() {
                       </h4>
                       <p className="text-xs text-slate-500">Processed File</p>
                     </div>
+                    {/* 🔥 FIXED: Use Helper for Download URL */}
                     <a
-                      href={`${BACKEND_URL}/outputs/${filename}`}
+                      href={getImageUrl(filename, false)}
                       download
                       target="_blank"
                       rel="noreferrer"
@@ -413,8 +429,9 @@ export default function TaskDetails() {
             <button className="flex-1 py-3 bg-[#11151c] border border-slate-700 hover:bg-slate-800 text-slate-300 rounded-xl font-medium text-sm transition">
               Cancel Task
             </button>
+            {/* 🔥 FIXED: Use Helper for View Original URL */}
             <a
-              href={task.originalImage}
+              href={getImageUrl(task.originalImage, true)}
               target="_blank"
               rel="noreferrer"
               className="flex-1 py-3 bg-[#7C3AED] hover:bg-[#6D28D9] text-white rounded-xl font-medium text-sm flex items-center justify-center gap-2 transition"

@@ -1,18 +1,17 @@
 import { useEffect } from "react";
 import { socket } from "../services/socket";
 
+// 🔥 EXISTING HOOK: For specific Task Details room
 export const useTaskSocket = (taskId, onEvent) => {
   useEffect(() => {
     if (!taskId) return;
 
-    // ⚡ SDE Polish: Connect only if disconnected (prevents multiple handshake calls)
     if (!socket.connected) {
       socket.connect();
     }
 
     socket.emit("join-task-room", taskId);
 
-    // Named handlers so we can cleanly remove ONLY these specific listeners
     const handleProcessing = (data) => onEvent("processing", data);
     const handleProgress = (data) => onEvent("progress", data);
     const handleCompleted = (data) => onEvent("completed", data);
@@ -24,8 +23,6 @@ export const useTaskSocket = (taskId, onEvent) => {
     socket.on("TASK_FAILED", handleFailed);
 
     return () => {
-      // ⚡ SDE Polish: Leave room, but ONLY remove this component's listeners.
-      // Do NOT call socket.disconnect() or removeAllListeners() if socket is shared!
       socket.emit("leave-task-room", taskId);
       socket.off("TASK_PROCESSING", handleProcessing);
       socket.off("TASK_PROGRESS", handleProgress);
@@ -33,4 +30,20 @@ export const useTaskSocket = (taskId, onEvent) => {
       socket.off("TASK_FAILED", handleFailed);
     };
   }, [taskId, onEvent]);
+};
+
+// 🔥 NEW HOOK: For Global Dashboard Updates
+export const useDashboardSocket = (onGlobalUpdate) => {
+  useEffect(() => {
+    if (!socket.connected) {
+      socket.connect();
+    }
+
+    // Jab bhi backend global chillaayega, yeh function chalega
+    socket.on("GLOBAL_TASK_UPDATE", onGlobalUpdate);
+
+    return () => {
+      socket.off("GLOBAL_TASK_UPDATE", onGlobalUpdate);
+    };
+  }, [onGlobalUpdate]);
 };

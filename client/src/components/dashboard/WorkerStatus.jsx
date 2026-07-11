@@ -1,25 +1,33 @@
-export const WorkerStatus = () => {
+// 🔥 ADDED analytics prop to dynamically control Worker states
+export const WorkerStatus = ({
+  analytics = { processing: 0, completed: 0 },
+}) => {
+  // Logic: Worker-1 handles the first processing task, Worker-2 handles the second if high load.
+  const getWorkerState = (workerIndex) => {
+    if (analytics.processing > workerIndex) {
+      return { status: "Busy", color: "text-yellow-400", bg: "bg-yellow-400" };
+    }
+    return { status: "Idle", color: "text-green-400", bg: "bg-green-400" };
+  };
+
+  // Fake distribution of completed tasks just to make the UI look active
+  const totalDone = analytics.completed;
+
   const workers = [
     {
       name: "Worker-1",
-      status: "Online",
-      tasks: 12,
-      color: "text-green-400",
-      bg: "bg-green-400",
+      ...getWorkerState(0),
+      tasks: Math.ceil(totalDone * 0.5), // Handles ~50% of tasks
     },
     {
       name: "Worker-2",
-      status: "Busy",
-      tasks: 8,
-      color: "text-yellow-400",
-      bg: "bg-yellow-400",
+      ...getWorkerState(1),
+      tasks: Math.ceil(totalDone * 0.3), // Handles ~30% of tasks
     },
     {
       name: "Worker-3",
-      status: "Idle",
-      tasks: 5,
-      color: "text-green-400",
-      bg: "bg-green-400",
+      ...getWorkerState(2),
+      tasks: Math.floor(totalDone * 0.2), // Handles ~20% of tasks
     },
   ];
 

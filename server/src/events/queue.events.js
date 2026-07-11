@@ -32,11 +32,17 @@ export const setupQueueEvents = () => {
     const io = getIO();
     if (!io) return;
 
-    io.to(taskId).emit(eventName, {
+    const eventData = {
       taskId,
       ...payload,
       timestamp: new Date().toISOString(),
-    });
+    };
+
+    // 1. Specific Room ke liye (For TaskDetails page)
+    io.to(taskId).emit(eventName, eventData);
+
+    // 🔥 2. NEW: Global broadcast (For Dashboard live updates)
+    io.emit("GLOBAL_TASK_UPDATE", eventData);
   };
 
   // 🔥 FIX 4: Prevent duplicate listeners agar function 2 baar call ho jaye

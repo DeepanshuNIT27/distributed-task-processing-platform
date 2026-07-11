@@ -1,6 +1,32 @@
-import { CheckCircle2, Clock, XCircle, Loader2 } from "lucide-react";
+import { CheckCircle2, Clock, XCircle, Loader2, RefreshCw } from "lucide-react";
+import { useState } from "react";
+import { api } from "../services/api"; // 🔥 Added API service for retry
 
 export default function TaskTable({ tasks = [], isLoading = false }) {
+  // 🔥 Added State for loading spinner on the specific button
+  const [retryingId, setRetryingId] = useState(null);
+
+  // 🔥 Phase 9.4: Handle Retry Click
+  const handleRetry = async (taskId) => {
+    if (!taskId) return;
+    setRetryingId(taskId);
+
+    try {
+      // Calling the Retry API created in Phase 9.1
+      await api.post(`/tasks/retry/${taskId}`);
+      console.log(`✅ Task ${taskId} sent for retry!`);
+      // Note: Since you have real-time progress (7.4), the websocket should auto-update the status to 'processing' here!
+    } catch (error) {
+      console.error("Retry Error:", error);
+      alert(
+        "Failed to retry task: " +
+          (error.response?.data?.error || error.message),
+      );
+    } finally {
+      setRetryingId(null);
+    }
+  };
+
   // Helper for Status Badges
   const getStatusBadge = (status) => {
     switch (status?.toLowerCase()) {
@@ -49,13 +75,15 @@ export default function TaskTable({ tasks = [], isLoading = false }) {
               <th className="font-medium p-4 pl-6">Task ID</th>
               <th className="font-medium p-4">Status</th>
               <th className="font-medium p-4">Progress</th>
-              <th className="font-medium p-4 text-right pr-6">Created At</th>
+              <th className="font-medium p-4">Created At</th>
+              {/* 🔥 Added Action Column Header */}
+              <th className="font-medium p-4 text-right pr-6">Action</th>
             </tr>
           </thead>
           <tbody className="text-sm text-slate-300 divide-y divide-slate-700/50">
             {tasks.length === 0 ? (
               <tr>
-                <td colSpan="4" className="text-center p-8 text-slate-500">
+                <td colSpan="5" className="text-center p-8 text-slate-500">
                   No tasks found. Go to Create Task to upload an image.
                 </td>
               </tr>
@@ -83,8 +111,27 @@ export default function TaskTable({ tasks = [], isLoading = false }) {
                       </div>
                     </div>
                   </td>
-                  <td className="p-4 text-right pr-6 text-slate-400">
+                  <td className="p-4 text-slate-400">
                     {new Date(task.createdAt).toLocaleString()}
+                  </td>
+                  {/* 🔥 Added Action Column Cell */}
+                  <td className="p-4 text-right pr-6">
+                    {task.status === "failed" ? (
+                      <button
+                        onClick={() => handleRetry(task._id || task.taskId)}
+                        disabled={retryingId === (task._id || task.taskId)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 text-xs font-medium border border-blue-500/20 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {retryingId === (task._id || task.taskId) ? (
+                          <Loader2 size={14} className="animate-spin" />
+                        ) : (
+                          <RefreshCw size={14} />
+                        )}
+                        Retry
+                      </button>
+                    ) : (
+                      <span className="text-slate-600 text-xs">-</span>
+                    )}
                   </td>
                 </tr>
               ))
