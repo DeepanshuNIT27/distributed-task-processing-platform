@@ -21,7 +21,7 @@ export default function CreateTask() {
     webp: true,
   });
 
-  // --- TERA EXISTING SUBMIT FUNCTION (100% Same) ---
+  // --- TERA EXISTING SUBMIT FUNCTION (Surgically Fixed) ---
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!file) {
@@ -33,6 +33,10 @@ export default function CreateTask() {
       const formData = new FormData();
       // 🔥 FIX: Verified backend uses upload.single("image")
       formData.append("image", file);
+
+      // 🔥 SURGICAL STRIKE: Ab priority aur options bhi backend ko jayenge
+      formData.append("priority", priority);
+      formData.append("options", JSON.stringify(options));
 
       await taskService.createTask(formData);
       toast.success("Task created successfully!");

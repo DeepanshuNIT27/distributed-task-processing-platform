@@ -172,11 +172,12 @@ export default function Dashboard() {
       <StatsGrid stats={analytics} />
 
       {/* Row 2: Recent Tasks & Worker Status */}
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 mt-6 items-stretch">
-        <div className="xl:col-span-2 h-full">
-          <RecentTasks tasks={tasks} />
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 mt-6 items-start">
+        <div className="xl:col-span-2">
+          {/* 🔥 FIX: Only pass the latest 4 tasks to the component */}
+          <RecentTasks tasks={tasks.slice(0, 4)} />
         </div>
-        <div className="xl:col-span-1 h-full">
+        <div className="xl:col-span-1">
           <WorkerStatus analytics={analytics} />
         </div>
       </div>

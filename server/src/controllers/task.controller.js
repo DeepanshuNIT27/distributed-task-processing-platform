@@ -1,9 +1,7 @@
 import { Task } from "../models/Task.model.js";
 import { imageQueue } from "../queues/imageQueue.js";
+import mongoose from "mongoose"; // 🔥 SURGICAL STRIKE: Analytics aggregate filter ke liye zaroori hai
 
-// ----------------------------------------------------
-// Existing Code (Untouched except BullMQ options)
-// ----------------------------------------------------
 export const uploadImage = async (req, res) => {
   try {
     if (!req.file) {
@@ -12,22 +10,34 @@ export const uploadImage = async (req, res) => {
         .json({ success: false, error: "Please upload an image file" });
     }
 
+    let options = { thumbnail: true, medium: true, large: true, webp: true };
+    if (req.body.options) {
+      try {
+        options = JSON.parse(req.body.options);
+      } catch (e) {}
+    }
+
+    let jobPriority = 2;
+    if (req.body.priority === "High") jobPriority = 1;
+    if (req.body.priority === "Low") jobPriority = 3;
+
     const imageUrl = `${req.protocol}://${req.get("host")}/uploads/original/${req.file.filename}`;
 
     const task = await Task.create({
+      user: req.user.id, // 🔥 SURGICAL STRIKE: Task ko current logged-in user assign kiya
       originalImage: imageUrl,
     });
 
-    // ✅ FIX: BullMQ jobId = MongoDB taskId + 🔥 Phase 9.8 DLQ Retries
     const job = await imageQueue.add(
       "process-image",
-      { taskId: task._id },
+      { taskId: task._id, options },
       {
         jobId: task._id.toString(),
-        attempts: 3, // 🔥 DLQ: Max 3 tries before moving to Dead Letter state
+        priority: jobPriority,
+        attempts: 3,
         backoff: {
           type: "exponential",
-          delay: 2000, // 🔥 Wait 2 seconds before first retry
+          delay: 2000,
         },
       },
     );
@@ -44,12 +54,12 @@ export const uploadImage = async (req, res) => {
   }
 };
 
-// ----------------------------------------------------
-// 🔥 Phase 7.3: Fetch all tasks (For History Page)
-// ----------------------------------------------------
 export const getAllTasks = async (req, res) => {
   try {
-    const tasks = await Task.find().sort({ createdAt: -1 });
+    // 🔥 SURGICAL STRIKE: Sirf usi user ke tasks dhoondho jo logged in hai
+    const tasks = await Task.find({ user: req.user.id }).sort({
+      createdAt: -1,
+    });
     res.status(200).json({
       success: true,
       tasks,
@@ -59,15 +69,15 @@ export const getAllTasks = async (req, res) => {
   }
 };
 
-// ----------------------------------------------------
-// 🔥 Phase 7.4: Fetch single task details (For Task Details Page)
-// ----------------------------------------------------
 export const getTaskById = async (req, res) => {
   try {
-    const task = await Task.findById(req.params.id);
+    // 🔥 SURGICAL STRIKE: Security ke liye verify karo ki task usi user ka hai
+    const task = await Task.findOne({ _id: req.params.id, user: req.user.id });
 
     if (!task) {
-      return res.status(404).json({ success: false, error: "Task not found" });
+      return res
+        .status(404)
+        .json({ success: false, error: "Task not found or unauthorized" });
     }
 
     res.status(200).json({
@@ -79,21 +89,19 @@ export const getTaskById = async (req, res) => {
   }
 };
 
-// ----------------------------------------------------
-// 🔥 Phase 9.1: Retry Failed Task (WITH UNIQUE JOB ID FIX)
-// ----------------------------------------------------
 export const retryTask = async (req, res) => {
   try {
     const { id } = req.params;
 
-    // 1. Task ko DB mein dhoondho
-    const task = await Task.findById(id);
+    // 🔥 SURGICAL STRIKE: Sirf apni failed image retry kar sake user
+    const task = await Task.findOne({ _id: id, user: req.user.id });
 
     if (!task) {
-      return res.status(404).json({ success: false, error: "Task not found" });
+      return res
+        .status(404)
+        .json({ success: false, error: "Task not found or unauthorized" });
     }
 
-    // 2. Check agar task actually failed hai
     if (task.status !== "failed") {
       return res.status(400).json({
         success: false,
@@ -101,19 +109,17 @@ export const retryTask = async (req, res) => {
       });
     }
 
-    // 3. Reset task status & progress in DB
     task.status = "pending";
     task.progress = 0;
-    task.error = null; // Purana error clear karo
+    task.error = null;
     await task.save();
 
-    // 4. 🔥 FIX: Same jobId ko BullMQ dubara accept nahi karta... + 🔥 DLQ Retries
     await imageQueue.add(
       "process-image",
       { taskId: task._id },
       {
         jobId: `${task._id}-retry-${Date.now()}`,
-        attempts: 3, // 🔥 DLQ logic applied here too
+        attempts: 3,
         backoff: { type: "exponential", delay: 2000 },
       },
     );
@@ -129,13 +135,11 @@ export const retryTask = async (req, res) => {
   }
 };
 
-// ----------------------------------------------------
-// 🔥 Phase 9.7: Task Analytics (Dashboard Stats)
-// ----------------------------------------------------
 export const getTaskAnalytics = async (req, res) => {
   try {
-    // MongoDB Aggregation Pipeline - Groups tasks by status and counts them
     const stats = await Task.aggregate([
+      // 🔥 SURGICAL STRIKE: Aggregation chalaane se pehle sirf is user ka data filter kar lo
+      { $match: { user: new mongoose.Types.ObjectId(req.user.id) } },
       {
         $group: {
           _id: "$status",
@@ -144,7 +148,6 @@ export const getTaskAnalytics = async (req, res) => {
       },
     ]);
 
-    // Default counters
     const analytics = {
       total: 0,
       completed: 0,
@@ -154,7 +157,6 @@ export const getTaskAnalytics = async (req, res) => {
       successRate: 0,
     };
 
-    // Populate counters from DB results
     stats.forEach((stat) => {
       analytics.total += stat.count;
       if (stat._id === "completed") analytics.completed = stat.count;
@@ -163,7 +165,6 @@ export const getTaskAnalytics = async (req, res) => {
       if (stat._id === "pending") analytics.pending = stat.count;
     });
 
-    // Calculate Success Rate properly
     if (analytics.total > 0) {
       analytics.successRate = Math.round(
         (analytics.completed / analytics.total) * 100,

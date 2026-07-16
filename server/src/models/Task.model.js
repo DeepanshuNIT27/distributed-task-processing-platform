@@ -2,6 +2,12 @@ import mongoose from "mongoose";
 
 const taskSchema = new mongoose.Schema(
   {
+    // 🔥 SURGICAL STRIKE: Task ko User ke sath link karne ke liye
+    user: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
     originalImage: {
       type: String,
       required: true,
@@ -15,7 +21,7 @@ const taskSchema = new mongoose.Schema(
       type: Number,
       default: 0,
       min: 0,
-      max: 100, 
+      max: 100,
     },
     outputs: {
       thumbnail: { type: String, default: null },

@@ -44,6 +44,14 @@ const imageWorker = new Worker(
   "image-processing-queue",
   async (job) => {
     const taskId = job?.data?.taskId;
+    // 🔥 SURGICAL STRIKE: Extract dynamically selected options
+    const options = job?.data?.options || {
+      thumbnail: true,
+      medium: true,
+      large: true,
+      webp: true,
+    };
+
     console.log(`\n⚙️ Job [${job.id}] Started! Task ID:`, taskId);
 
     try {
@@ -89,32 +97,51 @@ const imageWorker = new Worker(
       // 🔥 UI TESTING DELAY: Live progress dekhne ke liye 2 second ka pause
       await new Promise((resolve) => setTimeout(resolve, 2000));
 
-      console.log(`🛠️ Processing 4 optimized versions for Job [${job.id}]...`);
+      console.log(
+        `🛠️ Processing dynamic requested versions for Job [${job.id}]...`,
+      );
       const baseFileName = `job_${job.id}`;
 
-      await Promise.all([
-        sharp(imageBuffer)
-          .resize(150, 150, { fit: "cover" })
-          .toFile(path.join(outputFolder, `${baseFileName}_thumbnail.jpg`)),
-        sharp(imageBuffer)
-          .resize(500)
-          .toFile(path.join(outputFolder, `${baseFileName}_medium.jpg`)),
-        sharp(imageBuffer)
-          .resize(1000)
-          .toFile(path.join(outputFolder, `${baseFileName}_large.jpg`)),
-        sharp(imageBuffer)
-          .webp({ quality: 80 })
-          .toFile(path.join(outputFolder, `${baseFileName}_optimized.webp`)),
-      ]);
+      // 🔥 SURGICAL STRIKE: Only process options selected by user
+      const promises = [];
+      const outputs = {};
+
+      if (options.thumbnail) {
+        promises.push(
+          sharp(imageBuffer)
+            .resize(150, 150, { fit: "cover" })
+            .toFile(path.join(outputFolder, `${baseFileName}_thumbnail.jpg`)),
+        );
+        outputs.thumbnail = `${baseFileName}_thumbnail.jpg`;
+      }
+      if (options.medium) {
+        promises.push(
+          sharp(imageBuffer)
+            .resize(500)
+            .toFile(path.join(outputFolder, `${baseFileName}_medium.jpg`)),
+        );
+        outputs.medium = `${baseFileName}_medium.jpg`;
+      }
+      if (options.large) {
+        promises.push(
+          sharp(imageBuffer)
+            .resize(1000)
+            .toFile(path.join(outputFolder, `${baseFileName}_large.jpg`)),
+        );
+        outputs.large = `${baseFileName}_large.jpg`;
+      }
+      if (options.webp) {
+        promises.push(
+          sharp(imageBuffer)
+            .webp({ quality: 80 })
+            .toFile(path.join(outputFolder, `${baseFileName}_optimized.webp`)),
+        );
+        outputs.optimized = `${baseFileName}_optimized.webp`;
+      }
+
+      await Promise.all(promises);
 
       console.log(`✅ Job [${job.id}] Images Processed Successfully!`);
-
-      const outputs = {
-        thumbnail: `${baseFileName}_thumbnail.jpg`,
-        medium: `${baseFileName}_medium.jpg`,
-        large: `${baseFileName}_large.jpg`,
-        optimized: `${baseFileName}_optimized.webp`,
-      };
 
       // ✅ Update Progress to 100%
       if (job) await job.updateProgress(100);
@@ -122,7 +149,7 @@ const imageWorker = new Worker(
         status: "completed",
         progress: 100,
         errorDetails: null,
-        outputs: outputs,
+        outputs: outputs, // Dynamic outputs saved to DB
         completedAt: new Date(),
       });
       console.log(`✅ Task [${taskId}] marked as Completed in DB!`);
@@ -137,7 +164,6 @@ const imageWorker = new Worker(
       const maxAttempts = job?.opts?.attempts || 1;
       const attemptsMade = job?.attemptsMade || 0;
 
-      // Agar worker saare attempts (3) try kar chuka hai tabhi permanent fail (DLQ) maano
       if (attemptsMade >= maxAttempts - 1) {
         if (taskId) {
           await Task.findByIdAndUpdate(taskId, {
@@ -156,7 +182,6 @@ const imageWorker = new Worker(
         );
       }
 
-      // Error throw karna zaroori hai tabhi BullMQ usko wapas queue/DLQ mein daalega
       throw error;
     }
   },
@@ -173,7 +198,7 @@ imageWorker.once("ready", () => {
   console.log("🚀 Worker ready and waiting for jobs...");
 });
 
-// 🔥 PHASE 9.9: ZOMBIE LISTENER (Jab crashed task wapas recover ho)
+// 🔥 PHASE 9.9: ZOMBIE LISTENER
 imageWorker.on("stalled", (jobId) => {
   console.warn(
     `🧟‍♂️ ZOMBIE DETECTED: Job [${jobId}] stalled (Worker crashed). Recovering it back to queue...`,

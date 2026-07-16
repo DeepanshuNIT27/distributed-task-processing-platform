@@ -19,7 +19,10 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
+    // 🔥 SURGICAL FIX: Agar error login route se aaya hai, toh reload mat karo
+    const isLoginRoute = error.config?.url?.includes("/login");
+
+    if (error.response?.status === 401 && !isLoginRoute) {
       localStorage.removeItem("token");
       localStorage.removeItem("user");
       // Force redirect to login

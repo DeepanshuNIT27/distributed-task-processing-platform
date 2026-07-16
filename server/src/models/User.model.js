@@ -18,6 +18,11 @@ const userSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    // 🔥 SURGICAL STRIKE: Added avatar field to allow Base64 string storage
+    avatar: {
+      type: String,
+      default: "",
+    },
   },
   {
     timestamps: true,

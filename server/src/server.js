@@ -22,7 +22,9 @@ await connectDB();
 
 // --- Middlewares ---
 app.use(cors());
-app.use(express.json());
+// 🔥 SURGICAL STRIKE: Payload size limit badha di (10MB) taaki Base64 image easily pass ho sake
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ limit: "10mb", extended: true }));
 
 // 🔥 CRITICAL FIX: In folders ko public kiya taaki Worker image download kar sake aur Frontend unhe dekh sake!
 // 🔥 CRITICAL FIX: Express ko exact "src/uploads" ka rasta de diya

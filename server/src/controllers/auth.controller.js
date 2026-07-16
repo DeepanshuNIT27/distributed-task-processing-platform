@@ -122,3 +122,84 @@ export const getMe = async (req, res) => {
     });
   }
 };
+
+export const updateProfile = async (req, res) => {
+  try {
+    // 🔥 SURGICAL STRIKE: Added 'avatar' extraction
+    const { name, email, currentPassword, newPassword, avatar } = req.body;
+
+    const user = await User.findById(req.user.id);
+
+    if (!user) {
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found" });
+    }
+
+    if (name) user.name = name;
+    if (email) user.email = email;
+    if (avatar) user.avatar = avatar; // 🔥 Save base64 avatar to DB
+
+    if (newPassword) {
+      if (!currentPassword) {
+        return res.status(400).json({
+          success: false,
+          message: "Please enter your current password to change it.",
+        });
+      }
+
+      const isMatch = await bcrypt.compare(currentPassword, user.password);
+      if (!isMatch) {
+        return res.status(400).json({
+          success: false,
+          message: "Incorrect current password.",
+        });
+      }
+
+      user.password = await bcrypt.hash(newPassword, 10);
+    }
+
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Profile updated successfully",
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        avatar: user.avatar,
+      },
+    });
+  } catch (error) {
+    console.error("Update Profile Error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server Error",
+    });
+  }
+};
+
+// 🔥 SURGICAL STRIKE: Complete Delete Account Logic
+export const deleteAccount = async (req, res) => {
+  try {
+    const user = await User.findByIdAndDelete(req.user.id);
+
+    if (!user) {
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found" });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Account deleted successfully",
+    });
+  } catch (error) {
+    console.error("Delete Account Error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server Error",
+    });
+  }
+};

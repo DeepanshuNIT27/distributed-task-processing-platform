@@ -6,4 +6,13 @@ export const userService = {
     const response = await api.get("/api/auth/me");
     return response.data;
   },
+  updateProfile: async (data) => {
+    const response = await api.put("/api/auth/profile", data);
+    return response.data;
+  },
+  // 🔥 SURGICAL STRIKE: Delete account API call
+  deleteAccount: async () => {
+    const response = await api.delete("/api/auth/account");
+    return response.data;
+  },
 };

@@ -63,7 +63,12 @@ export default function LoginForm() {
         replace: true,
       });
     } catch (error) {
-      toast.error(error.response?.data?.message || "Failed to login");
+      // 🔥 SURGICAL STRIKE: Custom error message for invalid credentials
+      if (error.response?.status === 401 || error.response?.status === 400) {
+        toast.error("Invalid user email or password");
+      } else {
+        toast.error(error.response?.data?.message || "Failed to login");
+      }
     } finally {
       setIsLoading(false);
     }
