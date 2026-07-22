@@ -9,8 +9,8 @@ dist/
 build/
 
 # Generated output folders
-server/output/
-worker/output/
+server/outputs/
+worker/outputs/
 
 # Logs
 npm-debug.log*
