@@ -1,19 +1,16 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import {
-  ArrowLeft,
   Loader2,
   CheckCircle2,
   XCircle,
   Clock,
-  ImageIcon,
   Check,
   AlertCircle,
   Download,
   Eye,
 } from "lucide-react";
 import { taskService } from "../services/task.service";
-import { useTaskSocket } from "../hooks/useTaskSocket";
 
 const BACKEND_URL =
   import.meta.env.VITE_BACKEND_URL ||
@@ -30,40 +27,37 @@ export default function TaskDetails() {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
+    let pollTimer;
+    let cancelled = false;
+
     const fetchTask = async () => {
       try {
         const data = await taskService.getTaskById(id);
         const taskData = data.task;
+        if (cancelled) return;
+
         setTask(taskData);
         setStatus(taskData.status);
         setProgress(taskData.progress || 0);
+
+        if (!["completed", "failed"].includes(taskData.status)) {
+          pollTimer = setTimeout(fetchTask, 8000);
+        }
       } catch (error) {
         console.error("Error fetching task:", error);
+        if (!cancelled) pollTimer = setTimeout(fetchTask, 8000);
       } finally {
-        setIsLoading(false);
+        if (!cancelled) setIsLoading(false);
       }
     };
+
     fetchTask();
+
+    return () => {
+      cancelled = true;
+      clearTimeout(pollTimer);
+    };
   }, [id]);
-
-  const handleSocketEvent = useCallback((type, data) => {
-    if (type === "processing") setStatus("processing");
-    if (type === "progress") {
-      setStatus("processing");
-      setProgress(data.progress);
-    }
-    if (type === "completed") {
-      setStatus("completed");
-      setProgress(100);
-      setTask((prev) => ({ ...prev, outputs: data.outputs }));
-    }
-    if (type === "failed") {
-      setStatus("failed");
-      setTask((prev) => ({ ...prev, errorDetails: data.error }));
-    }
-  }, []);
-
-  useTaskSocket(id, handleSocketEvent);
 
   if (isLoading) {
     return (

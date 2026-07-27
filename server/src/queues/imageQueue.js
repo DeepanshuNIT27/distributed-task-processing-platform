@@ -6,7 +6,7 @@ dotenv.config();
 
 // 🔥 FIXED: Strictly matched with Worker's TLS to prevent Upstash ECONNRESET
 const connection = new IORedis(process.env.REDIS_URL, {
-  maxRetriesPerRequest: null,
+  maxRetriesPerRequest: 1,
   family: 4,
   tls: { rejectUnauthorized: false },
 });
@@ -16,16 +16,30 @@ connection.on("error", (err) => {
   console.error("❌ Producer Queue Redis Error:", err.message);
 });
 
-// 🔥 Phase 9.2: Added Default Job Options for Auto-Retry & Exponential Backoff
-export const imageQueue = new Queue("image-processing-queue", {
+// Keep Redis history bounded and let users explicitly retry failed demo jobs.
+const queueName = process.env.QUEUE_NAME || "image-processing-queue";
+
+export const imageQueue = new Queue(queueName, {
   connection,
   defaultJobOptions: {
-    attempts: 3, // Agar fail hua toh total 3 baar try karega
-    backoff: {
-      type: "exponential",
-      delay: 2000, // Pehla retry 2 sec baad, agla 4 sec baad
+    attempts: 1,
+    removeOnComplete: {
+      age: 3600,
+      count: 20,
+    },
+    removeOnFail: {
+      age: 86400,
+      count: 20,
     },
   },
 });
 
 console.log("📦 BullMQ Producer Queue initialized on Server.");
+
+export const closeImageQueue = async () => {
+  await imageQueue.close();
+
+  if (connection.status !== "end") {
+    await connection.quit();
+  }
+};

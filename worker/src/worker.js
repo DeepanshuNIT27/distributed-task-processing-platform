@@ -31,6 +31,8 @@ const connection = new IORedis(process.env.REDIS_URL, {
   tls: { rejectUnauthorized: false },
 });
 
+const queueName = process.env.QUEUE_NAME || "image-processing-queue";
+
 connection.once("ready", () => console.log("✅ Redis authenticated & ready"));
 connection.on("error", (err) => console.error("❌ Redis Error:", err.message));
 
@@ -41,7 +43,7 @@ if (!fs.existsSync(outputFolder)) {
 }
 
 const imageWorker = new Worker(
-  "image-processing-queue",
+  queueName,
   async (job) => {
     const taskId = job?.data?.taskId;
     // 🔥 SURGICAL STRIKE: Extract dynamically selected options
@@ -62,8 +64,6 @@ const imageWorker = new Worker(
 
       const imageUrl = task.originalImage;
 
-      // ✅ Update Progress to 10%
-      if (job) await job.updateProgress(10);
       await Task.findByIdAndUpdate(taskId, {
         status: "processing",
         progress: 10,
@@ -90,8 +90,6 @@ const imageWorker = new Worker(
         );
       }
 
-      // ✅ Update Progress to 50%
-      if (job) await job.updateProgress(50);
       await Task.findByIdAndUpdate(taskId, { progress: 50 });
 
       // 🔥 UI TESTING DELAY: Live progress dekhne ke liye 2 second ka pause
@@ -143,8 +141,6 @@ const imageWorker = new Worker(
 
       console.log(`✅ Job [${job.id}] Images Processed Successfully!`);
 
-      // ✅ Update Progress to 100%
-      if (job) await job.updateProgress(100);
       await Task.findByIdAndUpdate(taskId, {
         status: "completed",
         progress: 100,
@@ -156,10 +152,6 @@ const imageWorker = new Worker(
 
       return outputs;
     } catch (error) {
-      if (job) {
-        await job.updateProgress(0);
-      }
-
       // 🔥 PHASE 9.8 DLQ LOGIC
       const maxAttempts = job?.opts?.attempts || 1;
       const attemptsMade = job?.attemptsMade || 0;
@@ -187,10 +179,11 @@ const imageWorker = new Worker(
   },
   {
     connection,
-    // 🔥 PHASE 9.9: WORKER RECOVERY SETTINGS (ZOMBIE KILLER)
-    lockDuration: 30000,
-    stalledInterval: 30000,
-    maxStalledCount: 2,
+    concurrency: 1,
+    drainDelay: 60,
+    lockDuration: 120000,
+    stalledInterval: 300000,
+    maxStalledCount: 1,
   },
 );
 
@@ -204,3 +197,35 @@ imageWorker.on("stalled", (jobId) => {
     `🧟‍♂️ ZOMBIE DETECTED: Job [${jobId}] stalled (Worker crashed). Recovering it back to queue...`,
   );
 });
+
+let isShuttingDown = false;
+
+const shutdown = async (signal) => {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+  console.log(`\n${signal} received. Closing worker resources...`);
+
+  const forceExitTimer = setTimeout(() => {
+    console.error("Worker shutdown timed out.");
+    process.exit(1);
+  }, 30000);
+  forceExitTimer.unref();
+
+  try {
+    await imageWorker.close();
+
+    if (connection.status !== "end") {
+      await connection.quit();
+    }
+
+    await mongoose.disconnect();
+    console.log("✅ Worker resources closed.");
+    process.exit(0);
+  } catch (error) {
+    console.error("❌ Worker shutdown failed:", error.message);
+    process.exit(1);
+  }
+};
+
+process.once("SIGTERM", () => shutdown("SIGTERM"));
+process.once("SIGINT", () => shutdown("SIGINT"));

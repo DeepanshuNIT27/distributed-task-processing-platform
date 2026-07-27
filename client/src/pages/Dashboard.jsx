@@ -15,9 +15,6 @@ import {
 import { taskService } from "../services/task.service";
 import { api } from "../services/api";
 
-// 🔥 IMPORT THE NEW HOOK
-import { useDashboardSocket } from "../hooks/useTaskSocket";
-
 // Components
 import { StatsGrid } from "../components/dashboard/StatsGrid";
 import { RecentTasks } from "../components/dashboard/RecentTasks";
@@ -66,10 +63,19 @@ export default function Dashboard() {
     fetchDashboardData(true); // Initial load with spinner
   }, [fetchDashboardData]);
 
-  // 🔥 ADDED: Listen for Global Socket Updates and fetch data silently (without spinner)
-  useDashboardSocket(() => {
-    fetchDashboardData(false);
-  });
+  useEffect(() => {
+    const hasActiveTasks = tasks.some(
+      (task) => task.status === "pending" || task.status === "processing",
+    );
+
+    if (!hasActiveTasks) return undefined;
+
+    const pollTimer = setInterval(() => {
+      fetchDashboardData(false);
+    }, 8000);
+
+    return () => clearInterval(pollTimer);
+  }, [tasks, fetchDashboardData]);
 
   // --- DYNAMIC GRAPH LOGIC ---
   const generateChartData = (allTasks) => {

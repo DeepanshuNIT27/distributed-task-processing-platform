@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Search,
@@ -19,9 +19,6 @@ import { TableSkeleton } from "../components/common/TableSkeleton";
 import { EmptyState } from "../components/common/EmptyState";
 import { ErrorState } from "../components/common/ErrorState";
 
-// 🔥 ADDED: Import socket instance
-import { socket } from "../services/socket";
-
 export default function TaskHistory() {
   const navigate = useNavigate();
   const [tasks, setTasks] = useState([]);
@@ -34,8 +31,8 @@ export default function TaskHistory() {
   const [currentPage, setCurrentPage] = useState(1);
   const tasksPerPage = 5;
 
-  const fetchTasks = async () => {
-    setIsLoading(true);
+  const fetchTasks = useCallback(async (showLoading = true) => {
+    if (showLoading) setIsLoading(true);
     setError(null);
     try {
       const response = await api.get("/api/tasks");
@@ -47,65 +44,25 @@ export default function TaskHistory() {
       console.error("Error fetching tasks:", err);
       setError("Failed to load task history. Is the server running?");
     } finally {
-      setIsLoading(false);
+      if (showLoading) setIsLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchTasks();
-  }, []);
+  }, [fetchTasks]);
 
-  // 🔥 ADDED: Phase 9.6 - Socket Event Listeners for Live Updates
   useEffect(() => {
-    // Socket connect karo
-    socket.connect();
-
-    // Universal update handler
-    const handleTaskUpdate = (data) => {
-      // Backend generally sends { taskId, progress, status, ... }
-      const targetId = data.taskId || data._id;
-      if (!targetId) return;
-
-      setTasks((prevTasks) =>
-        prevTasks.map((task) =>
-          task._id === targetId ? { ...task, ...data } : task,
-        ),
-      );
-    };
-
-    // Listen to standard events emitted by backend QueueEvents
-    socket.on("task_progress", handleTaskUpdate);
-    socket.on("task_completed", handleTaskUpdate);
-    socket.on("task_failed", handleTaskUpdate);
-    socket.on("task_updated", handleTaskUpdate); // Catch-all if backend uses this
-
-    // Cleanup on unmount
-    return () => {
-      socket.off("task_progress", handleTaskUpdate);
-      socket.off("task_completed", handleTaskUpdate);
-      socket.off("task_failed", handleTaskUpdate);
-      socket.off("task_updated", handleTaskUpdate);
-      socket.disconnect();
-    };
-  }, []);
-
-  // 🔥 ADDED: Phase 9.6 - Join Socket Rooms dynamically for active tasks
-  useEffect(() => {
-    // Sirf un tasks ke room join karo jo abhi complete ya fail nahi hue hain
-    const activeTasks = tasks.filter(
+    const hasActiveTasks = tasks.some(
       (t) => t.status === "pending" || t.status === "processing",
     );
 
-    activeTasks.forEach((task) => {
-      socket.emit("join-task-room", task._id);
-    });
+    if (!hasActiveTasks) return undefined;
 
-    return () => {
-      activeTasks.forEach((task) => {
-        socket.emit("leave-task-room", task._id);
-      });
-    };
-  }, [tasks]); // Re-run when tasks array changes
+    const pollTimer = setInterval(() => fetchTasks(false), 8000);
+
+    return () => clearInterval(pollTimer);
+  }, [tasks, fetchTasks]);
 
   const handleRetry = async (taskId) => {
     if (!taskId) return;

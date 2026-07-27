@@ -4,11 +4,12 @@ import express from "express";
 import http from "http";
 import cors from "cors";
 import { Server } from "socket.io";
+import mongoose from "mongoose";
 
 import { connectDB } from "./config/db.js";
 
 import { setIO } from "./sockets/socket.instance.js";
-import { setupQueueEvents } from "./events/queue.events.js";
+import { closeImageQueue } from "./queues/imageQueue.js";
 
 import taskRoutes from "./routes/task.routes.js";
 import dashboardRoutes from "./routes/dashboard.routes.js";
@@ -58,9 +59,6 @@ io.on("connection", (socket) => {
   });
 });
 
-// Start BullMQ → Socket bridge
-setupQueueEvents();
-
 // API Routes
 app.use("/api/auth", authRoutes); // 🔥 Naya auth route mount kiya
 app.use("/api/tasks", taskRoutes);
@@ -71,3 +69,31 @@ const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
   console.log(`🚀 API Server running on port ${PORT}`);
 });
+
+let isShuttingDown = false;
+
+const shutdown = async (signal) => {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+  console.log(`\n${signal} received. Closing API resources...`);
+
+  const forceExitTimer = setTimeout(() => {
+    console.error("Graceful shutdown timed out.");
+    process.exit(1);
+  }, 10000);
+  forceExitTimer.unref();
+
+  try {
+    await new Promise((resolve) => io.close(resolve));
+    await closeImageQueue();
+    await mongoose.disconnect();
+    console.log("✅ API resources closed.");
+    process.exit(0);
+  } catch (error) {
+    console.error("❌ API shutdown failed:", error.message);
+    process.exit(1);
+  }
+};
+
+process.once("SIGTERM", () => shutdown("SIGTERM"));
+process.once("SIGINT", () => shutdown("SIGINT"));

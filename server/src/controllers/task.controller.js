@@ -34,11 +34,6 @@ export const uploadImage = async (req, res) => {
       {
         jobId: task._id.toString(),
         priority: jobPriority,
-        attempts: 3,
-        backoff: {
-          type: "exponential",
-          delay: 2000,
-        },
       },
     );
 
@@ -119,8 +114,6 @@ export const retryTask = async (req, res) => {
       { taskId: task._id },
       {
         jobId: `${task._id}-retry-${Date.now()}`,
-        attempts: 3,
-        backoff: { type: "exponential", delay: 2000 },
       },
     );
 
