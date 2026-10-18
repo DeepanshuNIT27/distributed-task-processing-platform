@@ -187,7 +187,8 @@ const imageWorker = new Worker(
       const maxAttempts = job?.opts?.attempts || 1;
       const attemptsMade = job?.attemptsMade || 0;
 
-      if (attemptsMade >= maxAttempts) {
+      // 🔥 FIXED: Added + 1 so DB status correctly updates to "failed" on the final attempt
+      if (attemptsMade + 1 >= maxAttempts) {
         if (taskId) {
           await Task.findByIdAndUpdate(taskId, {
             status: "failed",
