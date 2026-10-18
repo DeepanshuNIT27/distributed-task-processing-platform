@@ -11,6 +11,7 @@ build/
 # Generated output folders
 server/outputs/
 worker/outputs/
+server/src/uploads/
 
 # Logs
 npm-debug.log*

@@ -1,8 +1,16 @@
 import { Task } from "../models/Task.model.js";
 import { imageQueue } from "../queues/imageQueue.js";
 import mongoose from "mongoose"; // 🔥 SURGICAL STRIKE: Analytics aggregate filter ke liye zaroori hai
+import {
+  assertCloudinaryConfigured,
+  deleteCloudinaryImage,
+  uploadImageBuffer,
+} from "../config/cloudinary.js";
 
 export const uploadImage = async (req, res) => {
+  let uploadedPublicId = null;
+  let task = null;
+
   try {
     if (!req.file) {
       return res
@@ -21,11 +29,30 @@ export const uploadImage = async (req, res) => {
     if (req.body.priority === "High") jobPriority = 1;
     if (req.body.priority === "Low") jobPriority = 3;
 
-    const imageUrl = `${req.protocol}://${req.get("host")}/uploads/original/${req.file.filename}`;
+    assertCloudinaryConfigured();
 
-    const task = await Task.create({
+    const taskId = new mongoose.Types.ObjectId();
+    const publicId = `users/${req.user.id}/tasks/${taskId}/original`;
+    const uploadedImage = await uploadImageBuffer(req.file.buffer, {
+      public_id: publicId,
+    });
+    uploadedPublicId = uploadedImage.public_id;
+    const imageUrl = uploadedImage.secure_url;
+
+    task = await Task.create({
+      _id: taskId,
       user: req.user.id, // 🔥 SURGICAL STRIKE: Task ko current logged-in user assign kiya
       originalImage: imageUrl,
+      originalAsset: {
+        publicId: uploadedImage.public_id,
+        assetId: uploadedImage.asset_id,
+        secureUrl: uploadedImage.secure_url,
+        format: uploadedImage.format,
+        bytes: uploadedImage.bytes,
+        width: uploadedImage.width,
+        height: uploadedImage.height,
+      },
+      processingOptions: options,
     });
 
     const job = await imageQueue.add(
@@ -45,6 +72,12 @@ export const uploadImage = async (req, res) => {
       fileUrl: imageUrl,
     });
   } catch (error) {
+    if (task?._id) {
+      await Task.findByIdAndDelete(task._id).catch(() => {});
+    }
+    if (uploadedPublicId) {
+      await deleteCloudinaryImage(uploadedPublicId).catch(() => {});
+    }
     res.status(500).json({ success: false, error: error.message });
   }
 };
@@ -106,12 +139,12 @@ export const retryTask = async (req, res) => {
 
     task.status = "pending";
     task.progress = 0;
-    task.error = null;
+    task.errorDetails = null;
     await task.save();
 
     await imageQueue.add(
       "process-image",
-      { taskId: task._id },
+      { taskId: task._id, options: task.processingOptions },
       {
         jobId: `${task._id}-retry-${Date.now()}`,
       },

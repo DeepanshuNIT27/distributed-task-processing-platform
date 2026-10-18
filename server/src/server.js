@@ -27,8 +27,8 @@ app.use(cors());
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ limit: "10mb", extended: true }));
 
-// 🔥 CRITICAL FIX: In folders ko public kiya taaki Worker image download kar sake aur Frontend unhe dekh sake!
-// 🔥 CRITICAL FIX: Express ko exact "src/uploads" ka rasta de diya
+// Temporary backwards compatibility for tasks created before Cloudinary storage.
+// New uploads and outputs are served directly from Cloudinary.
 app.use("/uploads", express.static("src/uploads"));
 app.use("/outputs", express.static("outputs"));
 

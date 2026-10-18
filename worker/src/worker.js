@@ -3,10 +3,12 @@ import { Worker } from "bullmq";
 import dotenv from "dotenv";
 import axios from "axios";
 import sharp from "sharp";
-import fs from "fs";
-import path from "path";
 import mongoose from "mongoose";
 import { Task } from "./models/Task.model.js";
+import {
+  deleteCloudinaryImage,
+  uploadImageBuffer,
+} from "./config/cloudinary.js";
 
 dotenv.config();
 
@@ -35,12 +37,6 @@ const queueName = process.env.QUEUE_NAME || "image-processing-queue";
 
 connection.once("ready", () => console.log("✅ Redis authenticated & ready"));
 connection.on("error", (err) => console.error("❌ Redis Error:", err.message));
-
-// 🔥 CRITICAL FIX: Worker ko force kiya ki wo file 'server/outputs' mein save kare
-const outputFolder = path.resolve("../server/outputs");
-if (!fs.existsSync(outputFolder)) {
-  fs.mkdirSync(outputFolder, { recursive: true });
-}
 
 const imageWorker = new Worker(
   queueName,
@@ -98,46 +94,80 @@ const imageWorker = new Worker(
       console.log(
         `🛠️ Processing dynamic requested versions for Job [${job.id}]...`,
       );
-      const baseFileName = `job_${job.id}`;
-
-      // 🔥 SURGICAL STRIKE: Only process options selected by user
-      const promises = [];
+      const basePublicId = `users/${task.user}/tasks/${taskId}/outputs`;
       const outputs = {};
+      const outputAssets = {};
+      const generatedImages = [];
 
       if (options.thumbnail) {
-        promises.push(
-          sharp(imageBuffer)
+        generatedImages.push({
+          key: "thumbnail",
+          publicId: `${basePublicId}/thumbnail`,
+          bufferPromise: sharp(imageBuffer)
             .resize(150, 150, { fit: "cover" })
-            .toFile(path.join(outputFolder, `${baseFileName}_thumbnail.jpg`)),
-        );
-        outputs.thumbnail = `${baseFileName}_thumbnail.jpg`;
+            .jpeg({ quality: 82 })
+            .toBuffer(),
+        });
       }
       if (options.medium) {
-        promises.push(
-          sharp(imageBuffer)
+        generatedImages.push({
+          key: "medium",
+          publicId: `${basePublicId}/medium`,
+          bufferPromise: sharp(imageBuffer)
             .resize(500)
-            .toFile(path.join(outputFolder, `${baseFileName}_medium.jpg`)),
-        );
-        outputs.medium = `${baseFileName}_medium.jpg`;
+            .jpeg({ quality: 85 })
+            .toBuffer(),
+        });
       }
       if (options.large) {
-        promises.push(
-          sharp(imageBuffer)
+        generatedImages.push({
+          key: "large",
+          publicId: `${basePublicId}/large`,
+          bufferPromise: sharp(imageBuffer)
             .resize(1000)
-            .toFile(path.join(outputFolder, `${baseFileName}_large.jpg`)),
-        );
-        outputs.large = `${baseFileName}_large.jpg`;
+            .jpeg({ quality: 88 })
+            .toBuffer(),
+        });
       }
       if (options.webp) {
-        promises.push(
-          sharp(imageBuffer)
-            .webp({ quality: 80 })
-            .toFile(path.join(outputFolder, `${baseFileName}_optimized.webp`)),
-        );
-        outputs.optimized = `${baseFileName}_optimized.webp`;
+        generatedImages.push({
+          key: "optimized",
+          publicId: `${basePublicId}/optimized`,
+          bufferPromise: sharp(imageBuffer).webp({ quality: 80 }).toBuffer(),
+        });
       }
 
-      await Promise.all(promises);
+      const generatedBuffers = await Promise.all(
+        generatedImages.map(async (image) => ({
+          ...image,
+          buffer: await image.bufferPromise,
+        })),
+      );
+
+      const uploadedPublicIds = [];
+      try {
+        for (const image of generatedBuffers) {
+          const uploaded = await uploadImageBuffer(image.buffer, {
+            public_id: image.publicId,
+          });
+          uploadedPublicIds.push(uploaded.public_id);
+          outputs[image.key] = uploaded.secure_url;
+          outputAssets[image.key] = {
+            publicId: uploaded.public_id,
+            assetId: uploaded.asset_id,
+            secureUrl: uploaded.secure_url,
+            format: uploaded.format,
+            bytes: uploaded.bytes,
+            width: uploaded.width,
+            height: uploaded.height,
+          };
+        }
+      } catch (uploadError) {
+        await Promise.allSettled(
+          uploadedPublicIds.map((publicId) => deleteCloudinaryImage(publicId)),
+        );
+        throw uploadError;
+      }
 
       console.log(`✅ Job [${job.id}] Images Processed Successfully!`);
 
@@ -146,6 +176,7 @@ const imageWorker = new Worker(
         progress: 100,
         errorDetails: null,
         outputs: outputs, // Dynamic outputs saved to DB
+        outputAssets,
         completedAt: new Date(),
       });
       console.log(`✅ Task [${taskId}] marked as Completed in DB!`);
@@ -156,7 +187,7 @@ const imageWorker = new Worker(
       const maxAttempts = job?.opts?.attempts || 1;
       const attemptsMade = job?.attemptsMade || 0;
 
-      if (attemptsMade >= maxAttempts - 1) {
+      if (attemptsMade >= maxAttempts) {
         if (taskId) {
           await Task.findByIdAndUpdate(taskId, {
             status: "failed",
