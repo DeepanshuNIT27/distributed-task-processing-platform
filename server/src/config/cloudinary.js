@@ -24,6 +24,22 @@ export const assertCloudinaryConfigured = configureCloudinary;
 export const uploadImageBuffer = (buffer, options = {}) => {
   configureCloudinary();
 
+  // 🔥 DEBUG LOG 1: Check what keys Render is actually seeing
+  // Double quotes ("") ke andar print hoga taaki hidden spaces pakde ja sakein
+  const config = cloudinary.config();
+  console.log("🔍 CLOUDINARY CONFIG CHECK:");
+  console.log(
+    "Cloud Name:",
+    config.cloud_name ? `"${config.cloud_name}"` : "MISSING",
+  );
+  console.log("API Key:", config.api_key ? `"${config.api_key}"` : "MISSING");
+  console.log(
+    "API Secret exists:",
+    !!config.api_secret,
+    "Length:",
+    config.api_secret ? config.api_secret.length : 0,
+  );
+
   return new Promise((resolve, reject) => {
     const uploadStream = cloudinary.uploader.upload_stream(
       {
@@ -32,7 +48,14 @@ export const uploadImageBuffer = (buffer, options = {}) => {
         ...options,
       },
       (error, result) => {
-        if (error) return reject(error);
+        if (error) {
+          // 🔥 DEBUG LOG 2: Exact error details from Cloudinary API
+          console.error(
+            "❌ CLOUDINARY UPLOAD ERROR:",
+            JSON.stringify(error, null, 2),
+          );
+          return reject(error);
+        }
         resolve(result);
       },
     );
